@@ -29,12 +29,12 @@ class SmarterDrive:
             wheel_travel: vexnumber = 300,
             units: DistanceUnits.DistanceUnits = DistanceUnits.MM,
             externalGearRatio: vexnumber = 1.0,
-            turn_threshold: vexnumber = 1,
-            turn_aggression: vexnumber = 1.0,
+            turn_threshold: vexnumber = 20,
+            turn_aggression: vexnumber = 0.1,
             drive_velocity: vexnumber = 50,
             drive_velocity_units: VelocityUnits.VelocityUnits = VelocityUnits.PERCENT,
             stopping: BrakeType.BrakeType = BrakeType.BRAKE):
-        self.target_heading = g.heading()
+        self._target_heading = g.heading()
         self.turn_aggression = turn_aggression
         self.turn_threshold = turn_threshold
         self.drive_velocity = drive_velocity
@@ -48,16 +48,15 @@ class SmarterDrive:
 
     @staticmethod
     def _distance_to_mm(distance: vexnumber, units: DistanceUnits.DistanceUnits):
-        match units:
-            case DistanceUnits.IN:
-                return distance * 25.4
-            case DistanceUnits.CM:
-                return distance * 10
-            case DistanceUnits.MM:
-                return distance
-            case _:
-                raise Exception(
-                    "this is what you get from using vex: enums which aren't.")
+        if units == DistanceUnits.IN:
+            return distance * 25.4
+        elif units == DistanceUnits.CM:
+            return distance * 10
+        elif units == DistanceUnits.MM:
+            return distance
+        else:
+            raise Exception(
+                "this is what you get from using vex: enums which aren't.")
 
     def drive(
             self,
@@ -80,9 +79,12 @@ class SmarterDrive:
         revolutions = SmarterDrive._distance_to_mm(
             distance, units) / self.wheel_travel
         self.lm.spin_for(direction, revolutions*self.external_gear_ratio, RotationUnits.REV, (velocity if velocity !=  # type:ignore
-                         None else self.drive_velocity)*self.external_gear_ratio, units_v if velocity != None else self.drive_velocity_units, wait)
+                         None else self.drive_velocity)*self.external_gear_ratio, units_v if velocity != None else self.drive_velocity_units, wait=False)
         self.rm.spin_for(direction, revolutions*self.external_gear_ratio, RotationUnits.REV, (velocity if velocity !=  # type:ignore
-                         None else self.drive_velocity)*self.external_gear_ratio, units_v if velocity != None else self.drive_velocity_units, wait)
+                         None else self.drive_velocity)*self.external_gear_ratio, units_v if velocity != None else self.drive_velocity_units, wait=False)
+        if wait:
+            while not self.lm.is_done():
+                pass
 
     def turn(
             self,
@@ -102,16 +104,18 @@ class SmarterDrive:
             angle: vexnumber
     ):
         """ Turn for the specified relative angle, in degrees. """
-        self._target_heading += angle if direction == TurnType.RIGHT else -angle
+        self._target_heading += angle if direction == TurnType.LEFT else -angle
         heading = self.gyro.heading()
-        while abs(self._target_heading - heading) >= self.turn_threshold:
-            difference = (self._target_heading -
-                          heading) % 360  # NEEDS DEBUGGING
+        difference = ((heading % 360) - (self._target_heading % 360)) % 360
+        while abs(difference) >= self.turn_threshold:
+            heading = self.gyro.heading()
+            difference = ((heading % 360) - (self._target_heading % 360)) % 360
             if difference > 180:
                 difference = difference - 360
             velocity = difference * self.turn_aggression
             self.turn(TurnType.RIGHT, velocity *
                       self.external_gear_ratio, VelocityUnits.PERCENT)
+        self.stop(self.stopping)
 
     def is_moving(self) -> bool:
         return self.lm.is_spinning() or self.rm.is_spinning()  # type:ignore
@@ -133,3 +137,4 @@ class SmarterDrive:
             if temp > max:
                 max = temp
         return max
+  
